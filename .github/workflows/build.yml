@@ -1,0 +1,42 @@
+name: Build firmware
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cài PlatformIO và esptool
+        run: pip install platformio esptool==4.8.1
+
+      - name: Build và gộp file factory (nạp tại offset 0x0)
+        run: |
+          set -e
+          mkdir -p out
+          for env in cyd cyd_inv cyd_st7789; do
+            pio run -e "$env"
+            B=".pio/build/$env"
+            BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n1)
+            python -m esptool --chip esp32 merge_bin \
+              -o "out/waze-hud-$env-factory.bin" \
+              --flash_mode dio --flash_freq 40m --flash_size 4MB \
+              0x1000 "$B/bootloader.bin" \
+              0x8000 "$B/partitions.bin" \
+              0xe000 "$BOOT_APP0" \
+              0x10000 "$B/firmware.bin"
+          done
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: waze-hud-firmware
+          path: out/*.bin
